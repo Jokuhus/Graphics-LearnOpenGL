@@ -12,6 +12,28 @@
 # include <cstring>
 # include <exception>
 
+# include "utils.hpp"
+
+enum	MoveObject {
+	MOVE_RIGHT,
+	MOVE_LEFT,
+	MOVE_UP,
+	MOVE_DOWN,
+	MOVE_FAR,
+	MOVE_CLOSE,
+	MOVE_RESET
+};
+
+enum	RotateObject {
+	ROTATE_CLOCK_X,
+	ROTATE_ANTICLOCK_X,
+	ROTATE_CLOCK_Y,
+	ROTATE_ANTICLOCK_Y,
+	ROTATE_CLOCK_Z,
+	ROTATE_ANTICLOCK_Z,
+	ROTATE_RESET
+};
+
 class Object
 {
 	private:
@@ -19,20 +41,27 @@ class Object
 		std::vector<float>				_vertices;
 		std::vector<unsigned int>	_indices;
 		unsigned int							_VBO[3], _VAO[3], _EBO;
+		float											_pos[3], _rot[3], _scale[3];
 
 		bool loadOBJ();
-		std::vector<float>	shiftToCentroid();
-		std::vector<float>	shiftToCentre();
+		std::vector<float>	shiftToCentroid() const;
+		void								shiftToCentre();
 
 	public:
-		Object(const char*);
+		Object(const char* path);
 		~Object();
 		void	setObject();
-		void	drawObject(int);
+		void	move(MoveObject direction);
+		void	rotate(RotateObject direction);
+		void	getModelMatrix(float* out) const;
+		void	drawObject(int currentMode) const;
 
 	class OBJLOADFAIL : public std::exception
 	{
-		virtual const char*	what();
+		virtual const char*	what() const throw()
+		{
+			return "OBJ load failed.";
+		}
 	};
 };
 

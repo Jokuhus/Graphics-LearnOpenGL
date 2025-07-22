@@ -81,12 +81,65 @@ void makeLookAt(float* m, float eyeX, float eyeY, float eyeZ,
     multiplyMatrix(m, t, trans);
 }
 
-void makeRotationY(float* m, float angleDegrees) 
+void makeTranslation(float* m, float x, float y, float z)
 {
-    float rad = angleDegrees * 3.1415926f / 180.0f;
-    float c = cosf(rad);
-    float s = sinf(rad);
+    loadIdentity(m);
+    m[12] = x;
+    m[13] = y;
+    m[14] = z;
+}
+
+void makeScale(float* m, float sx, float sy, float sz)
+{
+    loadIdentity(m);
+    m[0] = sx;
+    m[5] = sy;
+    m[10] = sz;
+}
+
+void makeRotationX(float* m, float angleDeg)
+{
+    float angleRad = angleDeg * (3.1415926f / 180.0f);
+    float c = cosf(angleRad);
+    float s = sinf(angleRad);
+
+    loadIdentity(m);
+    m[5] = c; m[9] = -s;
+    m[6] = s; m[10] = c;
+}
+
+void makeRotationY(float* m, float angleDeg) 
+{
+    float angleRad = angleDeg * 3.1415926f / 180.0f;
+    float c = cosf(angleRad);
+    float s = sinf(angleRad);
     loadIdentity(m);
     m[0] = c;  m[8] = s;
     m[2] = -s; m[10] = c;
+}
+
+void makeRotationZ(float* m, float angleDeg)
+{
+    float angleRad = angleDeg * (3.1415926f / 180.0f);
+    float c = cosf(angleRad);
+    float s = sinf(angleRad);
+
+    loadIdentity(m);
+    m[0] = c; m[4] = -s;
+    m[1] = s; m[5] = c;
+}
+
+void makeRotation(float* m, float angleDegX, float angleDegY, float angleDegZ)
+{
+    float   angleRadX = angleDegX * (3.1415926f / 180.0f);
+    float   angleRadY = angleDegY * (3.1415926f / 180.0f);
+    float   angleRadZ = angleDegZ * (3.1415926f / 180.0f);
+
+    float   cx = cosf(angleRadX), cy = cosf(angleRadY), cz = cosf(angleRadZ);
+    float   sx = sinf(angleRadX), sy = sinf(angleRadY), sz = sinf(angleRadZ);
+
+    loadIdentity(m);
+    m[0] = cz * cy;  m[4] = sx * sy * cz + cx * sz;  m[8] = -cz * sy * cx + sx * sz;
+    m[1] = -cy * sz; m[5] = -sx * sy * sz + cx * cz; m[9] = cx * sy * sz + sx * cz;
+    m[2] = sy;       m[6] = -sx * cy;                m[10] = cx * cy;
 }
