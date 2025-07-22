@@ -34,13 +34,21 @@ enum	RotateObject {
 	ROTATE_RESET
 };
 
+struct	FaceData {
+	unsigned int	vertex;
+	unsigned int	texture;
+	unsigned int	normal;
+};
+
 class Object
 {
 	private:
 		std::string								_path;
 		std::vector<float>				_vertices;
-		std::vector<unsigned int>	_indices;
-		unsigned int							_VBO[3], _VAO[3], _EBO;
+		std::vector<float>				_normals;
+		std::vector<FaceData>			_faceData;
+		std::vector<unsigned int> _indices;
+		unsigned int							_VBO, _VAO, _EBO;
 		float											_pos[3], _rot[3], _scale[3];
 
 		bool loadOBJ();
@@ -54,7 +62,7 @@ class Object
 		void	move(MoveObject direction);
 		void	rotate(RotateObject direction);
 		void	getModelMatrix(float* out) const;
-		void	drawObject(int currentMode) const;
+		void	drawObject() const;
 
 	class OBJLOADFAIL : public std::exception
 	{

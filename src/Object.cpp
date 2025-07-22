@@ -7,9 +7,6 @@ Object::Object(const char* path) : _path(path)
 		_pos[i] = 0;
 		_rot[i] = 0;
 		_scale[i] = 1;
-		std::cerr << "pos[" << i << "]: " << _pos[i] << "\n";
-		std::cerr << "rot[" << i << "]: " << _rot[i] << "\n";
-		std::cerr << "scale[" << i << "]: " << _scale[i] << std::endl;
 	}
 }
 
@@ -17,8 +14,8 @@ Object::~Object()
 {
 	// optional: de-allocate all resources once they've outlived their purpose:
   // ------------------------------------------------------------------------
-  glDeleteVertexArrays(2, _VAO);
-  glDeleteBuffers(2, _VBO);
+  glDeleteVertexArrays(1, &_VAO);
+  glDeleteBuffers(1, &_VBO);
   glDeleteBuffers(1, &_EBO);
 }
 
@@ -57,10 +54,10 @@ void	Object::move(MoveObject direction)
 			checkMove(_pos[1], -0.01f);
 			break;
 		case MOVE_CLOSE:
-			checkMove(_pos[2], 0.05f);
+			checkMove(_pos[2], -0.05f);
 			break;
 		case MOVE_FAR:
-			checkMove(_pos[2], -0.05f);
+			checkMove(_pos[2], 0.05f);
 			break;
 		case MOVE_RESET:
 			_pos[0] = 0; _pos[1] = 0; _pos[2] = 0;
@@ -75,10 +72,10 @@ void	Object::rotate(RotateObject	direction)
 	switch (direction)
 	{
 		case ROTATE_CLOCK_X:
-			checkRotate(_rot[0], -1.0f);
+			checkRotate(_rot[0], 1.0f);
 			break;
 		case ROTATE_ANTICLOCK_X:
-			checkRotate(_rot[0], 1.0f);
+			checkRotate(_rot[0], -1.0f);
 			break;
 		case ROTATE_CLOCK_Y:
 			checkRotate(_rot[1], -1.0f);
@@ -117,9 +114,9 @@ void Object::getModelMatrix(float* out) const {
     multiplyMatrix(out, T, temp);
 }
 
-void	Object::drawObject(int currentMode) const
+void	Object::drawObject() const
 {
-	glBindVertexArray(_VAO[currentMode]);
+	glBindVertexArray(_VAO);
 	glDrawElements(GL_TRIANGLES, _indices.size(), GL_UNSIGNED_INT, 0);
 }
 
@@ -129,32 +126,44 @@ void	Object::setObject()
 		throw OBJLOADFAIL();
 
 	shiftToCentre();
-	std::vector<float>	shiftedCentroidVertices = shiftToCentroid();
 
-  glGenVertexArrays(2, _VAO);
-  glGenBuffers(2, _VBO);
+	std::vector<float>	vertexNormalData;
+	unsigned int				idx = 0;
+
+	for (std::vector<FaceData>::const_iterator it = _faceData.begin(); it != _faceData.end(); it++)
+	{
+		_indices.push_back(idx++);
+
+		// vertex coordinate
+		vertexNormalData.push_back(_vertices[it->vertex * 3 + 0]);
+		vertexNormalData.push_back(_vertices[it->vertex * 3 + 1]);
+		vertexNormalData.push_back(_vertices[it->vertex * 3 + 2]);
+
+		// normal coordinate
+		vertexNormalData.push_back(_normals[it->normal * 3 + 0]);
+		vertexNormalData.push_back(_normals[it->normal * 3 + 1]);
+		vertexNormalData.push_back(_normals[it->normal * 3 + 2]);
+	}
+
+  glGenVertexArrays(1, &_VAO);
+  glGenBuffers(1, &_VBO);
   glGenBuffers(1, &_EBO);
 
-	std::vector<std::vector<float>>	allVertices = {
-		_vertices,
-		shiftedCentroidVertices
-	};
+	// bind the Vertex Array Object first, then bind and set vertex buffer(s), and then configure vertex attributes(s).
+	glBindVertexArray(_VAO);
 
-	for (int i = 0; i < 2; i++)
-	{
-		// bind the Vertex Array Object first, then bind and set vertex buffer(s), and then configure vertex attributes(s).
-		glBindVertexArray(_VAO[i]);
+	glBindBuffer(GL_ARRAY_BUFFER, _VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertexNormalData.size() * sizeof(float), vertexNormalData.data(), GL_STATIC_DRAW);
 
-		glBindBuffer(GL_ARRAY_BUFFER, _VBO[i]);
-		glBufferData(GL_ARRAY_BUFFER, allVertices[i].size() * sizeof(float), allVertices[i].data(), GL_STATIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, _EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, _indices.size() * sizeof(unsigned int), _indices.data(), GL_STATIC_DRAW);
 
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, _EBO);
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, _indices.size() * sizeof(unsigned int), _indices.data(), GL_STATIC_DRAW);
+	//vertex attribute
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
 
-		//vertex attribute
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-		glEnableVertexAttribArray(0);
-	}
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float))); // 노멀
+	glEnableVertexAttribArray(1);
 
   // note that this is allowed, the call to glVertexAttribPointer registered VBO as the vertex attribute's bound vertex buffer object so afterwards we can safely unbind
   glBindBuffer(GL_ARRAY_BUFFER, 0); 
@@ -173,8 +182,9 @@ bool Object::loadOBJ()
         return false;
     }
 
-    std::vector<float> temp_vertices;
-    std::vector<unsigned int> temp_indices;
+    std::vector<float>		temp_vertices;
+		std::vector<float>		temp_normals;
+    std::vector<FaceData>	temp_faceData;
 
     std::string line;
     while (std::getline(file, line)) 
@@ -192,33 +202,62 @@ bool Object::loadOBJ()
         temp_vertices.push_back(y);
         temp_vertices.push_back(z);
       }
+			else if (prefix == "vn")
+			{
+				float x, y, z;
+        iss >> x >> y >> z;
+        temp_normals.push_back(x);
+        temp_normals.push_back(y);
+        temp_normals.push_back(z);
+			}
       else if (prefix == "f") 
       {
-        std::vector<unsigned int> face_indices;
-        unsigned int idx;
-				std::string	face;
+        std::vector<FaceData> face_indices;
+        unsigned int	vIdx, vtIdx, vnIdx;
+				std::string		face;
+				char					delim;
 
         // f 다음에 나오는 모든 정점 인덱스 읽기
         while (std::getline(iss, face, ' '))
 				{
+					if (face.empty()) continue;
+
+					vIdx = 1; vtIdx = 1; vnIdx = 1;
 					std::stringstream	faceStream(face);
-					if (faceStream >> idx)
-          	face_indices.push_back(idx - 1); // 1-based -> 0-based
+
+					if (faceStream >> vIdx) 
+					{
+						if (faceStream >> delim) 
+						{
+							if (faceStream.peek() == '/') 
+							{
+								faceStream.get(); // skip second '/'
+								if (!(faceStream >> vnIdx)) vnIdx = 1;
+							} 
+							else 
+							{
+								if (!(faceStream >> vtIdx)) vtIdx = 1;
+								if (faceStream >> delim && !(faceStream >> vnIdx)) vnIdx = 1;
+							}
+						}
+					face_indices.push_back({vIdx - 1, vtIdx - 1, vnIdx - 1});
+					}
 				}
 
         // 팬 트라이앵글 방식으로 삼각형 분할
         for (size_t i = 1; i + 1 < face_indices.size(); ++i) 
         {
-            temp_indices.push_back(face_indices[0]);
-            temp_indices.push_back(face_indices[i]);
-            temp_indices.push_back(face_indices[i + 1]);
+            temp_faceData.push_back(face_indices[0]);
+            temp_faceData.push_back(face_indices[i]);
+            temp_faceData.push_back(face_indices[i + 1]);
         }
       }
       // ignore: vn, vt, comments, etc.
     }
 
     _vertices = temp_vertices;
-    _indices = temp_indices;
+		_normals  = temp_normals;
+    _faceData = temp_faceData;
     return true;
 }
 

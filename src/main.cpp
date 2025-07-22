@@ -4,15 +4,13 @@
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void process_input(Object& object);
-void cameraMove(float* model, unsigned int program, GLFWwindow* window);
+void cameraMove(unsigned int program, GLFWwindow* window);
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 // settings
 const unsigned int	SCR_WIDTH = 800;
 const unsigned int	SCR_HEIGHT = 600;
-bool                g_spin = false;
 bool                g_translate[7] = {false}, g_rotation[7] = {false};
-int                 g_centreMode = 0;
 float               g_scale = 5.0f;
 
 int main(int argc, char* argv[])
@@ -72,6 +70,8 @@ int main(int argc, char* argv[])
         return -1;
     }
 
+    glEnable(GL_DEPTH_TEST);
+
     // render loop
     // -----------
     while (!glfwWindowShouldClose(window))
@@ -88,11 +88,17 @@ int main(int argc, char* argv[])
         // ----------------------------
         float   model[16];
         object.getModelMatrix(model);
-        cameraMove(model, shader.ID, window);
+        glUniformMatrix4fv(glGetUniformLocation(shader.ID, "model"), 1, GL_FALSE, model);
+
+        cameraMove(shader.ID, window);
+
+        glUniform3f(glGetUniformLocation(shader.ID, "lightPos"), 3.0f, 3.0f, 5.0f);
+        glUniform3f(glGetUniformLocation(shader.ID, "lightColor"), 1.0f, 1.0f, 1.0f);
+        glUniform3f(glGetUniformLocation(shader.ID, "objectColor"), 0.7f, 0.7f, 0.7f);
 
         // Draw object
         // -----------
-        object.drawObject(g_centreMode);
+        object.drawObject();
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -106,25 +112,18 @@ int main(int argc, char* argv[])
     return 0;
 }
 
-void    cameraMove(float* model, unsigned int program, GLFWwindow* window)
+void    cameraMove(unsigned int program, GLFWwindow* window)
 {
     // MVP 행렬 계산 및 전달
     // -----------------
-    float   view[16], proj[16], vp[16], mvp[16], rotation[16];
+    float   view[16], proj[16];
     makeLookAt(view, 0.0f, 0.0f, g_scale, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
     makePerspective(proj, 45.0f, (float)SCR_WIDTH / SCR_HEIGHT, 0.1f, 100.0f);
 
-    multiplyMatrix(vp, proj, view);
-    multiplyMatrix(mvp, vp, model);
     // uniform 전달
     // -----------
-    int    loc = glGetUniformLocation(program, "uMVP");
-    if (loc == -1)
-    {
-        std::cerr << "Warning: uMVP uniform not found in shader!" << std::endl;
-        glfwSetWindowShouldClose(window, true);
-    }
-    glUniformMatrix4fv(loc, 1, GL_FALSE, mvp);
+    glUniformMatrix4fv(glGetUniformLocation(program, "view"), 1, GL_FALSE, view);
+    glUniformMatrix4fv(glGetUniformLocation(program, "projection"), 1, GL_FALSE, proj);
 }
 
 void    process_input(Object& object)
@@ -169,12 +168,6 @@ void    key_callback(GLFWwindow* window, int key, int scancode, int action, int 
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     if (key == GLFW_KEY_F && action == GLFW_PRESS)
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    if (key == GLFW_KEY_O && action == GLFW_PRESS)
-        g_centreMode = 0;
-    if (key == GLFW_KEY_C && action == GLFW_PRESS)
-        g_centreMode = 1;
-    if (key == GLFW_KEY_SPACE && action == GLFW_RELEASE)
-        g_spin = !g_spin;
     if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS)
         g_translate[0] = true;
     if (key == GLFW_KEY_RIGHT && action == GLFW_RELEASE)
