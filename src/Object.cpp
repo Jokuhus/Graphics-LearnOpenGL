@@ -1,6 +1,6 @@
 #include "Object.hpp"
 
-Object::Object(const char* path) : _path(path)
+Object::Object(const char* path) : _path(path), _TextureRatio(0.0f), _TextureMode(false)
 {
 	for (int i = 0; i < 3; i++)
 	{
@@ -32,9 +32,9 @@ void	checkRotate(float& rot, float degree)
 {
 	rot += degree;
 	if (rot > 360)
-		rot = -360;
+		rot = 0;
 	else if (rot < -360)
-		rot = 360;
+		rot = 0;
 }
 
 void	Object::move(MoveObject direction)
@@ -97,7 +97,8 @@ void	Object::rotate(RotateObject	direction)
 	}
 }
 
-void Object::getModelMatrix(float* out) const {
+void Object::getModelMatrix(float* out) const 
+{
     float T[16], R[16], S[16], temp[16];
 
     makeTranslation(T, _pos[0], _pos[1], _pos[2]);
@@ -114,8 +115,21 @@ void Object::getModelMatrix(float* out) const {
     multiplyMatrix(out, T, temp);
 }
 
-void	Object::drawObject() const
+void	Object::drawObject(unsigned int bumpSamplerLoc, unsigned int diffuseSamplerLoc)
 {
+	if (_isTextureExist)
+	{
+		if (_TextureMode && _TextureRatio < 1.0f)
+			_TextureRatio += 0.02f;
+		else if (!_TextureMode && _TextureRatio > 0.0f)
+			_TextureRatio -= 0.02f;
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, _BumpTextureID); // 유효한 텍스처 ID로 바인딩
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, _DiffTextureID);
+		glUniform1i(bumpSamplerLoc, 0);
+    glUniform1i(diffuseSamplerLoc, 1);
+	}
 	glBindVertexArray(_VAO);
 	glDrawElements(GL_TRIANGLES, _indices.size(), GL_UNSIGNED_INT, 0);
 }
@@ -127,22 +141,47 @@ void	Object::setObject()
 
 	shiftToCentre();
 
-	std::vector<float>	vertexNormalData;
+	std::vector<float>	vertexData;
 	unsigned int				idx = 0;
+	int									vertSize = _vertices.size();
+	int									normSize = _normals.size();
+	int									textSize = _textures.size();
 
-	for (std::vector<FaceData>::const_iterator it = _faceData.begin(); it != _faceData.end(); it++)
+	for (std::vector<FaceData>::const_iterator it = _faceData.begin(); it != _faceData.end(); ++it)
 	{
 		_indices.push_back(idx++);
 
 		// vertex coordinate
-		vertexNormalData.push_back(_vertices[it->vertex * 3 + 0]);
-		vertexNormalData.push_back(_vertices[it->vertex * 3 + 1]);
-		vertexNormalData.push_back(_vertices[it->vertex * 3 + 2]);
+		if (it->vertex * 3 + 2 < vertSize)
+		{
+			vertexData.push_back(_vertices[it->vertex * 3 + 0]);
+			vertexData.push_back(_vertices[it->vertex * 3 + 1]);
+			vertexData.push_back(_vertices[it->vertex * 3 + 2]);
+		}
+		else
+			throw Object::OBJFORMATERROR();
 
 		// normal coordinate
-		vertexNormalData.push_back(_normals[it->normal * 3 + 0]);
-		vertexNormalData.push_back(_normals[it->normal * 3 + 1]);
-		vertexNormalData.push_back(_normals[it->normal * 3 + 2]);
+		if (it->normal > -1 && it->normal * 3 + 2 < normSize)
+		{
+			vertexData.push_back(_normals[it->normal * 3 + 0]);
+			vertexData.push_back(_normals[it->normal * 3 + 1]);
+			vertexData.push_back(_normals[it->normal * 3 + 2]);
+		}
+		else
+			throw Object::OBJFORMATERROR();
+
+		// texture coordinate
+		if (it->texture > -1 && it->texture * 2 + 1 < textSize)
+		{
+			vertexData.push_back(_textures[it->texture * 2 + 0]);
+			vertexData.push_back(_textures[it->texture * 2 + 1]);
+		}
+		else
+		{
+			vertexData.push_back(0);
+			vertexData.push_back(0);
+		}
 	}
 
   glGenVertexArrays(1, &_VAO);
@@ -153,17 +192,20 @@ void	Object::setObject()
 	glBindVertexArray(_VAO);
 
 	glBindBuffer(GL_ARRAY_BUFFER, _VBO);
-	glBufferData(GL_ARRAY_BUFFER, vertexNormalData.size() * sizeof(float), vertexNormalData.data(), GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, vertexData.size() * sizeof(float), vertexData.data(), GL_STATIC_DRAW);
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, _EBO);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, _indices.size() * sizeof(unsigned int), _indices.data(), GL_STATIC_DRAW);
 
 	//vertex attribute
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
 	glEnableVertexAttribArray(0);
 
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float))); // 노멀
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float))); // 노멀
 	glEnableVertexAttribArray(1);
+
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float))); // texture
+	glEnableVertexAttribArray(2);
 
   // note that this is allowed, the call to glVertexAttribPointer registered VBO as the vertex attribute's bound vertex buffer object so afterwards we can safely unbind
   glBindBuffer(GL_ARRAY_BUFFER, 0); 
@@ -184,7 +226,9 @@ bool Object::loadOBJ()
 
     std::vector<float>		temp_vertices;
 		std::vector<float>		temp_normals;
+		std::vector<float>		temp_textures;
     std::vector<FaceData>	temp_faceData;
+		char									vt_flag = 0, vn_flag = 0;
 
     std::string line;
     while (std::getline(file, line)) 
@@ -210,19 +254,32 @@ bool Object::loadOBJ()
         temp_normals.push_back(y);
         temp_normals.push_back(z);
 			}
+			else if (prefix == "vt")
+			{
+				float x, y;
+        iss >> x >> y;
+        temp_textures.push_back(x);
+        temp_textures.push_back(y);
+			}
+			else if (prefix == "mtllib")
+			{
+				std::string	path;
+				iss >> path;
+				loadMTL(path);
+			}
       else if (prefix == "f") 
       {
         std::vector<FaceData> face_indices;
-        unsigned int	vIdx, vtIdx, vnIdx;
-				std::string		face;
-				char					delim;
+        int					vIdx, vtIdx, vnIdx;
+				std::string	face;
+				char				delim;
 
         // f 다음에 나오는 모든 정점 인덱스 읽기
         while (std::getline(iss, face, ' '))
 				{
 					if (face.empty()) continue;
 
-					vIdx = 1; vtIdx = 1; vnIdx = 1;
+					vIdx = 0; vtIdx = 0; vnIdx = 0;
 					std::stringstream	faceStream(face);
 
 					if (faceStream >> vIdx) 
@@ -232,65 +289,190 @@ bool Object::loadOBJ()
 							if (faceStream.peek() == '/') 
 							{
 								faceStream.get(); // skip second '/'
-								if (!(faceStream >> vnIdx)) vnIdx = 1;
+								if (vt_flag == 1)
+									throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\ntexture indeces are missing.");
+								else
+									vt_flag = 2;
+								if (!(faceStream >> vnIdx)) 
+								{
+									if (vn_flag == 1)
+										throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
+									else
+										vn_flag = 2;
+									vnIdx = 0;
+								}
+								else if (vn_flag == 2)
+										throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
+								else
+									vn_flag = 1;
 							} 
 							else 
 							{
-								if (!(faceStream >> vtIdx)) vtIdx = 1;
-								if (faceStream >> delim && !(faceStream >> vnIdx)) vnIdx = 1;
+								if (!(faceStream >> vtIdx)) 
+								{
+									if (vt_flag == 1)
+									throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\ntexture indeces are missing.");
+									else
+										vt_flag = 2;
+									vtIdx = 0;
+								}
+								else if (vt_flag == 2)
+									throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\ntexture indeces are missing.");
+								else
+									vt_flag = 1;
+								if (faceStream >> delim && !(faceStream >> vnIdx)) 
+								{
+									if (vn_flag == 1)
+										throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
+									else
+										vn_flag = 2;
+									vnIdx = 0;
+								}
+								else if (vn_flag == 2)
+										throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
+								else
+									vn_flag = 1;
 							}
 						}
-					face_indices.push_back({vIdx - 1, vtIdx - 1, vnIdx - 1});
+						face_indices.push_back({vIdx - 1, vtIdx - 1, vnIdx - 1});
 					}
+					else
+						throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nvertex indeces are missing.");
 				}
 
         // 팬 트라이앵글 방식으로 삼각형 분할
         for (size_t i = 1; i + 1 < face_indices.size(); ++i) 
         {
-            temp_faceData.push_back(face_indices[0]);
-            temp_faceData.push_back(face_indices[i]);
-            temp_faceData.push_back(face_indices[i + 1]);
+          temp_faceData.push_back(face_indices[0]);
+          temp_faceData.push_back(face_indices[i]);
+          temp_faceData.push_back(face_indices[i + 1]);
         }
       }
-      // ignore: vn, vt, comments, etc.
     }
+
+		if (!vn_flag || !temp_normals.size())
+		{
+			temp_normals.clear();
+			int	normalIndex = 0;
+			for (size_t i = 0; i + 2 < temp_faceData.size(); i += 3)
+			{
+				float	A[3] = {
+					temp_vertices[temp_faceData[i].vertex * 3 + 0],
+					temp_vertices[temp_faceData[i].vertex * 3 + 1],
+					temp_vertices[temp_faceData[i].vertex * 3 + 2]
+				};
+				float	B[3] = {
+					temp_vertices[temp_faceData[i + 1].vertex * 3 + 0],
+					temp_vertices[temp_faceData[i + 1].vertex * 3 + 1],
+					temp_vertices[temp_faceData[i + 1].vertex * 3 + 2]
+				};
+				float	C[3] = {
+					temp_vertices[temp_faceData[i + 2].vertex * 3 + 0],
+					temp_vertices[temp_faceData[i + 2].vertex * 3 + 1],
+					temp_vertices[temp_faceData[i + 2].vertex * 3 + 2]
+				};
+				std::vector<float>	normal = findNormal(A, B, C);
+				temp_normals.insert(temp_normals.end(), normal.begin(), normal.end());
+				temp_faceData[i].normal = normalIndex;
+				temp_faceData[i + 1].normal = normalIndex;
+				temp_faceData[i + 2].normal = normalIndex;
+				++normalIndex;
+			}
+		}
 
     _vertices = temp_vertices;
 		_normals  = temp_normals;
+		_textures = temp_textures;
     _faceData = temp_faceData;
     return true;
 }
 
-std::vector<float>	Object::shiftToCentroid() const
+void	Object::loadMTL(std::string fileName)
 {
-	float sumX = 0.0f, sumY = 0.0f, sumZ = 0.0f;
-	int numVertices = _vertices.size() / 3;
+	std::string::size_type	extention = fileName.find_last_of(".");
+	if (extention == std::string::npos || fileName.substr(extention + 1) != "mtl")
+		throw std::runtime_error("ERROR::LOADER::MTL::WRONG_EXTENSION\ninvalid file extension.");
 
-	// 모든 정점의 합 계산
-	// --------------
-	for (size_t i = 0; i < _vertices.size(); i += 3) {
-			sumX += _vertices[i];
-			sumY += _vertices[i + 1];
-			sumZ += _vertices[i + 2];
+	std::string base_dir = _path.substr(0, _path.find_last_of("/\\") + 1);
+	std::ifstream MtlFile(base_dir + fileName);
+  if (!MtlFile.is_open()) 
+		return;
+  std::string line;
+  while (std::getline(MtlFile, line)) 
+  {
+    std::istringstream iss(line);
+
+    std::string prefix;
+    iss >> prefix;
+
+    if (prefix == "bump") 
+    {
+			std::string	bumpFile;
+			iss >> bumpFile;
+			_BumpTextureID = setTextureData(base_dir, bumpFile, GL_TEXTURE0);
+    }
+		else if (prefix == "map_Kd")
+		{
+			std::string diffFile;
+			iss >> diffFile;
+			_DiffTextureID = setTextureData(base_dir, diffFile, GL_TEXTURE1);
+		}
 	}
+}
 
-	// 모든 정점의 평균 계산
-	// ----------------
-	float centroidX = sumX / numVertices;
-	float centroidY = sumY / numVertices;
-	float centroidZ = sumZ / numVertices;
+unsigned int	Object::setTextureData(std::string& base_dir, std::string fileName, unsigned int slot)
+{
+  std::string::size_type	extention = fileName.find_last_of(".");
+	if (extention == std::string::npos || fileName.substr(extention + 1) != "bmp")
+		throw std::runtime_error("ERROR::LOADER::BMP::WRONG_EXTENSION\ninvalid file extension.");
 
-	// 모든 정점을 중심 기준으로 이동
-	// ----------------------
-	std::vector<float>	result;
-	for (size_t i = 0; i < _vertices.size(); i += 3) 
-	{
-    result.push_back(_vertices[i]     - centroidX);
-    result.push_back(_vertices[i + 1] - centroidY);
-    result.push_back(_vertices[i + 2] - centroidZ);
-	}
+	std::ifstream BmpFile(base_dir + fileName);
+  if (!BmpFile.is_open()) 
+		throw std::runtime_error("ERROR::LOADER::BMP::FILE_OPEN_FAIL\nfailed to open file.");
 
-	return result;
+	unsigned char	header[54];
+	unsigned int dataPos;     // Position in the file where the actual data begins
+	unsigned int width, height;
+	unsigned int imageSize;   // = width*height*3
+
+			
+	BmpFile.read(reinterpret_cast<char*>(header), 54);
+	if (header[0]!='B' || header[1]!='M')
+		throw std::runtime_error("ERROR::LOADER::BMP::WRONG_FORMAT\nwrong bmp file header format.");
+	// 바이트 배열에서 int 변수를 읽습니다. 
+	dataPos    = *(int*)&(header[0x0A]);
+	imageSize  = *(int*)&(header[0x22]);
+	width      = *(int*)&(header[0x12]);
+	height     = *(int*)&(header[0x16]);
+
+	// 몇몇 BMP 파일들은 포맷이 잘못되었습니다. 정보가 누락됬는지 확인해봅니다. 
+	// Some BMP files are misformatted, guess missing information
+	if (imageSize == 0)    imageSize = width*height * 3; // 3 : one byte for each Red, Green and Blue component
+	if (dataPos == 0)      dataPos = 54; // The BMP header is done that way
+
+	std::vector<unsigned char>	temp_Texture(imageSize);
+	BmpFile.seekg(dataPos);
+	if (!BmpFile.read(reinterpret_cast<char*>(temp_Texture.data()), imageSize))
+		throw std::runtime_error("ERROR::LOADER::BMP::WRONG_FORMAT\nimage data not found.");
+
+	// OpenGL Texture를 생성합니다.
+	unsigned int	textureID;
+	glActiveTexture(slot);
+	glGenTextures(1, &textureID);
+
+	// 새 텍스처에 "Bind" 합니다 : 이제 모든 텍스처 함수들은 이 텍스처를 수정합니다. 
+	// "Bind" the newly created texture : all future texture functions will modify this texture
+	glBindTexture(GL_TEXTURE_2D, textureID);
+
+	// OpenGL에게 이미지를 넘겨줍니다. 
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_BGR, GL_UNSIGNED_BYTE, temp_Texture.data());
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+	_isTextureExist = true;
+
+	return textureID;
 }
 
 void	Object::shiftToCentre()
@@ -330,4 +512,50 @@ void	Object::shiftToCentre()
     _vertices[i + 1] = (_vertices[i + 1] - centerY) / maxLength;  // y
     _vertices[i + 2] = (_vertices[i + 2] - centerZ) / maxLength;  // z
 	}
+}
+
+void	Object::checkFileData() const
+{
+	int	maxV = 0, maxVt = 0, maxVn = 0;
+
+	for (std::vector<FaceData>::const_iterator it = _faceData.begin(); it != _faceData.end(); it++)
+	{
+		maxV = maxV > it->vertex ? maxV : it->vertex;
+		maxVt = maxVt > it->texture ? maxVt : it->texture;
+		maxVn = maxVn > it->normal ? maxVn : it->normal;
+	}
+
+	if (maxV >= static_cast<int>(_vertices.size()) || maxVt >= static_cast<int>(_textures.size()) || maxVn >= static_cast<int>(_normals.size()))
+		throw Object::OBJFORMATERROR();
+}
+
+float	Object::getTextureRatio() const
+{
+	return _TextureRatio;
+}
+
+void	Object::toggleTexureMode()
+{
+	if (_isTextureExist)
+		_TextureMode = !_TextureMode;
+}
+
+std::vector<float>	Object::findNormal(const float *A, const float *B, const float *C) const
+{
+	float	firstVector[3] = {
+		B[0] - A[0],
+		B[1] - A[1],
+		B[2] - A[2]
+	};
+	float	secondVector[3] = {
+		C[0] - A[0],
+		C[1] - A[1],
+		C[2] - A[2]
+	};
+	std::vector<float>	normal = {
+		firstVector[1] * secondVector[2] - firstVector[2] * secondVector[1],
+		firstVector[2] * secondVector[0] - firstVector[0] * secondVector[2],
+		firstVector[0] * secondVector[1] - firstVector[1] * secondVector[0]
+	};
+	return normal;
 }

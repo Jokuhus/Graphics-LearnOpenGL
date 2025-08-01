@@ -4,14 +4,13 @@
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void process_input(Object& object);
-void cameraMove(unsigned int program, GLFWwindow* window);
+void cameraMove(const float* model, unsigned int uMVPLoc);
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 // settings
 const unsigned int	SCR_WIDTH = 800;
 const unsigned int	SCR_HEIGHT = 600;
-bool                g_translate[7] = {false}, g_rotation[7] = {false};
-float               g_scale = 5.0f;
+bool                g_translate[7] = {false}, g_rotation[7] = {false}, g_textureMode = false;
 
 int main(int argc, char* argv[])
 {
@@ -70,7 +69,14 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    glEnable(GL_DEPTH_TEST);
+    unsigned int    uMVPLoc = glGetUniformLocation(shader.ID, "uMVP");
+    unsigned int    modelLoc = glGetUniformLocation(shader.ID, "model");
+    unsigned int    lightPosLoc = glGetUniformLocation(shader.ID, "lightPos");
+    unsigned int    lightColorLoc = glGetUniformLocation(shader.ID, "lightColor");
+    unsigned int    objectColorLoc = glGetUniformLocation(shader.ID, "objectColor");
+    unsigned int    textureRatioLoc = glGetUniformLocation(shader.ID, "textureRatio");
+    unsigned int    bumpSamplerLoc = glGetUniformLocation(shader.ID, "BumpSampler");
+    unsigned int    diffuseSamplerLoc = glGetUniformLocation(shader.ID, "DiffuseSampler");
 
     // render loop
     // -----------
@@ -88,17 +94,18 @@ int main(int argc, char* argv[])
         // ----------------------------
         float   model[16];
         object.getModelMatrix(model);
-        glUniformMatrix4fv(glGetUniformLocation(shader.ID, "model"), 1, GL_FALSE, model);
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model);
 
-        cameraMove(shader.ID, window);
+        cameraMove(model, uMVPLoc);
 
-        glUniform3f(glGetUniformLocation(shader.ID, "lightPos"), 3.0f, 3.0f, 5.0f);
-        glUniform3f(glGetUniformLocation(shader.ID, "lightColor"), 1.0f, 1.0f, 1.0f);
-        glUniform3f(glGetUniformLocation(shader.ID, "objectColor"), 0.7f, 0.7f, 0.7f);
+        glUniform3f(lightPosLoc, 3.0f, 3.0f, 5.0f);
+        glUniform3f(lightColorLoc, 1.0f, 1.0f, 1.0f);
+        glUniform3f(objectColorLoc, 0.7f, 0.7f, 0.7f);
+        glUniform1f(textureRatioLoc, object.getTextureRatio());
 
         // Draw object
         // -----------
-        object.drawObject();
+        object.drawObject(bumpSamplerLoc, diffuseSamplerLoc);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -112,18 +119,19 @@ int main(int argc, char* argv[])
     return 0;
 }
 
-void    cameraMove(unsigned int program, GLFWwindow* window)
+void    cameraMove(const float* model, unsigned int uMVPLoc)
 {
     // MVP 행렬 계산 및 전달
     // -----------------
-    float   view[16], proj[16];
-    makeLookAt(view, 0.0f, 0.0f, g_scale, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+    float   view[16], proj[16], mvp[16];
+    makeLookAt(view, 0.0f, 0.0f, 5.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
     makePerspective(proj, 45.0f, (float)SCR_WIDTH / SCR_HEIGHT, 0.1f, 100.0f);
 
+    multiplyMatrix(mvp, proj, view);
+    multiplyMatrix(mvp, mvp, model);
     // uniform 전달
     // -----------
-    glUniformMatrix4fv(glGetUniformLocation(program, "view"), 1, GL_FALSE, view);
-    glUniformMatrix4fv(glGetUniformLocation(program, "projection"), 1, GL_FALSE, proj);
+    glUniformMatrix4fv(uMVPLoc, 1, GL_FALSE, mvp);
 }
 
 void    process_input(Object& object)
@@ -156,18 +164,26 @@ void    process_input(Object& object)
         object.rotate(ROTATE_ANTICLOCK_Z);
     if (g_rotation[6])
         object.rotate(ROTATE_RESET);
+    if (g_textureMode)
+    {
+        object.toggleTexureMode();
+        g_textureMode = false;
+    }
 }
 
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
 // ---------------------------------------------------------------------------------------------------------
 void    key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
+    std::cerr << "key input: [" << key << "]" << std::endl;
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
     if (key == GLFW_KEY_L && action == GLFW_PRESS)
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     if (key == GLFW_KEY_F && action == GLFW_PRESS)
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    if (key == GLFW_KEY_M && action == GLFW_PRESS)
+        g_textureMode = true;
     if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS)
         g_translate[0] = true;
     if (key == GLFW_KEY_RIGHT && action == GLFW_RELEASE)
