@@ -17,6 +17,8 @@ Object::~Object()
   glDeleteVertexArrays(1, &_VAO);
   glDeleteBuffers(1, &_VBO);
   glDeleteBuffers(1, &_EBO);
+	glDeleteTextures(1, &_BumpTextureID);
+	glDeleteTextures(1, &_DiffTextureID);
 }
 
 void	checkMove(float& pos, float distance)
