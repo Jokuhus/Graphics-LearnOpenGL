@@ -115,30 +115,31 @@ void Object::getModelMatrix(float* out) const
     multiplyMatrix(out, T, temp);
 }
 
-void	Object::drawObject(unsigned int bumpSamplerLoc, unsigned int diffuseSamplerLoc)
+void	Object::drawObject(unsigned int bumpSamplerLoc, unsigned int diffuseSamplerLoc) const
 {
-	if (_isTextureExist)
-	{
-		if (_TextureMode && _TextureRatio < 1.0f)
-			_TextureRatio += 0.02f;
-		else if (!_TextureMode && _TextureRatio > 0.0f)
-			_TextureRatio -= 0.02f;
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, _BumpTextureID); // 유효한 텍스처 ID로 바인딩
-		glActiveTexture(GL_TEXTURE1);
-		glBindTexture(GL_TEXTURE_2D, _DiffTextureID);
-		glUniform1i(bumpSamplerLoc, 0);
-    glUniform1i(diffuseSamplerLoc, 1);
-	}
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, _BumpTextureID); // 유효한 텍스처 ID로 바인딩
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, _DiffTextureID);
+	glUniform1i(bumpSamplerLoc, 0);
+  glUniform1i(diffuseSamplerLoc, 1);
 	glBindVertexArray(_VAO);
 	glDrawElements(GL_TRIANGLES, _indices.size(), GL_UNSIGNED_INT, 0);
 }
 
+void Object::updateTextureBlendRatio()
+{
+	if (!_isTextureExist)
+		return ;
+	if (_TextureMode && _TextureRatio < 1.0f)
+		_TextureRatio += 0.02f;
+	else if (!_TextureMode && _TextureRatio > 0.0f)
+		_TextureRatio -= 0.02f;
+}
+
 void	Object::setObject()
 {
-	if (!loadOBJ())
-		throw OBJLOADFAIL();
-
+	loadOBJ();
 	shiftToCentre();
 
 	std::vector<float>	vertexData;
@@ -159,7 +160,7 @@ void	Object::setObject()
 			vertexData.push_back(_vertices[it->vertex * 3 + 2]);
 		}
 		else
-			throw Object::OBJFORMATERROR();
+			throw std::runtime_error("ERROR::SETTER::OBJ::DATA_ERROR\nvertex index is out of data.");
 
 		// normal coordinate
 		if (it->normal > -1 && it->normal * 3 + 2 < normSize)
@@ -169,7 +170,7 @@ void	Object::setObject()
 			vertexData.push_back(_normals[it->normal * 3 + 2]);
 		}
 		else
-			throw Object::OBJFORMATERROR();
+			throw std::runtime_error("ERROR::SETTER::OBJ::DATA_ERROR\nnoraml index is out of data.");
 
 		// texture coordinate
 		if (it->texture > -1 && it->texture * 2 + 1 < textSize)
@@ -215,176 +216,189 @@ void	Object::setObject()
   glBindVertexArray(0);
 }
 
-bool Object::loadOBJ()
+void Object::loadOBJ()
 {
-    std::ifstream file(_path);
-    if (!file.is_open()) 
+	std::string::size_type	extention = _path.find_last_of(".");
+	if (extention == std::string::npos || _path.substr(extention + 1) != "obj")
+		throw std::runtime_error("ERROR::LOADER::OBJ::WRONG_EXTENSION\ninvalid file extension.");
+
+  std::ifstream file(_path);
+  if (!file.is_open())
+		throw std::runtime_error("ERROR::LOADER::OBJ::PATH_ERROR\nfailed to open OBJ file.");
+
+  std::vector<float>		temp_vertices;
+	std::vector<float>		temp_normals;
+	std::vector<float>		temp_textures;
+  std::vector<FaceData>	temp_faceData;
+	char									vt_flag = 0, vn_flag = 0, mtl_flag = 0;
+
+  std::string line;
+  while (std::getline(file, line)) 
+  {
+    std::istringstream iss(line);
+
+  	std::string prefix;
+  	iss >> prefix;
+		char	rest;
+
+    if (prefix == "v") 
     {
-        std::cerr << "Failed to open OBJ file: " << _path << std::endl;
-        return false;
+      float x, y, z;
+      if (!(iss >> x >> y >> z) || iss >> rest)
+				throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nvertex data is in wrong format.");
+      temp_vertices.push_back(x);
+      temp_vertices.push_back(y);
+      temp_vertices.push_back(z);
     }
-
-    std::vector<float>		temp_vertices;
-		std::vector<float>		temp_normals;
-		std::vector<float>		temp_textures;
-    std::vector<FaceData>	temp_faceData;
-		char									vt_flag = 0, vn_flag = 0;
-
-    std::string line;
-    while (std::getline(file, line)) 
+		else if (prefix == "vn")
+		{
+			float x, y, z;
+      if (!(iss >> x >> y >> z) || iss >> rest)
+				throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal data is in wrong format.");
+      temp_normals.push_back(x);
+      temp_normals.push_back(y);
+      temp_normals.push_back(z);
+		}
+		else if (prefix == "vt")
+		{
+			float x, y, z;
+      if (!(iss >> x >> y >> z) || iss >> rest)
+				throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\ntexture data is in wrong format.");
+      temp_textures.push_back(x);
+      temp_textures.push_back(y);
+		}
+		else if (prefix == "mtllib")
+		{
+			std::string	path;
+			iss >> path;
+			loadMTL(path);
+			mtl_flag = 1;
+		}
+    else if (prefix == "f") 
     {
-      std::istringstream iss(line);
+      std::vector<FaceData> face_indices;
+      int					vIdx, vtIdx, vnIdx;
+			std::string	face;
+			char				delim;
 
-      std::string prefix;
-      iss >> prefix;
+      // f 다음에 나오는 모든 정점 인덱스 읽기
+      while (std::getline(iss, face, ' '))
+			{
+				if (face.empty()) continue;
 
-      if (prefix == "v") 
-      {
-        float x, y, z;
-        iss >> x >> y >> z;
-        temp_vertices.push_back(x);
-        temp_vertices.push_back(y);
-        temp_vertices.push_back(z);
-      }
-			else if (prefix == "vn")
-			{
-				float x, y, z;
-        iss >> x >> y >> z;
-        temp_normals.push_back(x);
-        temp_normals.push_back(y);
-        temp_normals.push_back(z);
-			}
-			else if (prefix == "vt")
-			{
-				float x, y;
-        iss >> x >> y;
-        temp_textures.push_back(x);
-        temp_textures.push_back(y);
-			}
-			else if (prefix == "mtllib")
-			{
-				std::string	path;
-				iss >> path;
-				loadMTL(path);
-			}
-      else if (prefix == "f") 
-      {
-        std::vector<FaceData> face_indices;
-        int					vIdx, vtIdx, vnIdx;
-				std::string	face;
-				char				delim;
+				vIdx = 0; vtIdx = 0; vnIdx = 0;
+				std::stringstream	faceStream(face);
 
-        // f 다음에 나오는 모든 정점 인덱스 읽기
-        while (std::getline(iss, face, ' '))
+				if (faceStream >> vIdx) 
 				{
-					if (face.empty()) continue;
-
-					vIdx = 0; vtIdx = 0; vnIdx = 0;
-					std::stringstream	faceStream(face);
-
-					if (faceStream >> vIdx) 
+					if (faceStream >> delim) 
 					{
-						if (faceStream >> delim) 
+						if (faceStream.peek() == '/') 
 						{
-							if (faceStream.peek() == '/') 
+							faceStream.get(); // skip second '/'
+							if (vt_flag == 1)
+								throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\ntexture indeces are missing.");
+							else
+								vt_flag = 2;
+							if (!(faceStream >> vnIdx)) 
 							{
-								faceStream.get(); // skip second '/'
+								if (vn_flag == 1)
+									throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
+								else
+									vn_flag = 2;
+								vnIdx = 0;
+							}
+							else if (vn_flag == 2)
+									throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
+							else
+								vn_flag = 1;
+						} 
+						else 
+						{
+							if (!(faceStream >> vtIdx)) 
+							{
 								if (vt_flag == 1)
-									throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\ntexture indeces are missing.");
+								throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\ntexture indeces are missing.");
 								else
 									vt_flag = 2;
-								if (!(faceStream >> vnIdx)) 
-								{
-									if (vn_flag == 1)
-										throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
-									else
-										vn_flag = 2;
-									vnIdx = 0;
-								}
-								else if (vn_flag == 2)
-										throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
-								else
-									vn_flag = 1;
-							} 
-							else 
-							{
-								if (!(faceStream >> vtIdx)) 
-								{
-									if (vt_flag == 1)
-									throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\ntexture indeces are missing.");
-									else
-										vt_flag = 2;
-									vtIdx = 0;
-								}
-								else if (vt_flag == 2)
-									throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\ntexture indeces are missing.");
-								else
-									vt_flag = 1;
-								if (faceStream >> delim && !(faceStream >> vnIdx)) 
-								{
-									if (vn_flag == 1)
-										throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
-									else
-										vn_flag = 2;
-									vnIdx = 0;
-								}
-								else if (vn_flag == 2)
-										throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
-								else
-									vn_flag = 1;
+								vtIdx = 0;
 							}
+							else if (vt_flag == 2)
+								throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\ntexture indeces are missing.");
+							else
+								vt_flag = 1;
+							if (faceStream >> delim && !(faceStream >> vnIdx)) 
+							{
+								if (vn_flag == 1)
+									throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
+								else
+									vn_flag = 2;
+								vnIdx = 0;
+							}
+							else if (vn_flag == 2)
+									throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nnormal indeces are missing.");
+							else
+								vn_flag = 1;
 						}
-						face_indices.push_back({vIdx - 1, vtIdx - 1, vnIdx - 1});
 					}
-					else
-						throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nvertex indeces are missing.");
+					face_indices.push_back({vIdx - 1, vtIdx - 1, vnIdx - 1});
 				}
-
-        // 팬 트라이앵글 방식으로 삼각형 분할
-        for (size_t i = 1; i + 1 < face_indices.size(); ++i) 
-        {
-          temp_faceData.push_back(face_indices[0]);
-          temp_faceData.push_back(face_indices[i]);
-          temp_faceData.push_back(face_indices[i + 1]);
-        }
-      }
-    }
-
-		if (!vn_flag || !temp_normals.size())
-		{
-			temp_normals.clear();
-			int	normalIndex = 0;
-			for (size_t i = 0; i + 2 < temp_faceData.size(); i += 3)
-			{
-				float	A[3] = {
-					temp_vertices[temp_faceData[i].vertex * 3 + 0],
-					temp_vertices[temp_faceData[i].vertex * 3 + 1],
-					temp_vertices[temp_faceData[i].vertex * 3 + 2]
-				};
-				float	B[3] = {
-					temp_vertices[temp_faceData[i + 1].vertex * 3 + 0],
-					temp_vertices[temp_faceData[i + 1].vertex * 3 + 1],
-					temp_vertices[temp_faceData[i + 1].vertex * 3 + 2]
-				};
-				float	C[3] = {
-					temp_vertices[temp_faceData[i + 2].vertex * 3 + 0],
-					temp_vertices[temp_faceData[i + 2].vertex * 3 + 1],
-					temp_vertices[temp_faceData[i + 2].vertex * 3 + 2]
-				};
-				std::vector<float>	normal = findNormal(A, B, C);
-				temp_normals.insert(temp_normals.end(), normal.begin(), normal.end());
-				temp_faceData[i].normal = normalIndex;
-				temp_faceData[i + 1].normal = normalIndex;
-				temp_faceData[i + 2].normal = normalIndex;
-				++normalIndex;
+				else
+					throw std::runtime_error("ERROR::LOADER::OBJ::FORMAT_ERROR\nvertex indeces are missing.");
 			}
-		}
 
-    _vertices = temp_vertices;
-		_normals  = temp_normals;
-		_textures = temp_textures;
-    _faceData = temp_faceData;
-    return true;
+     	// 팬 트라이앵글 방식으로 삼각형 분할
+     	for (size_t i = 1; i + 1 < face_indices.size(); ++i) 
+     	{
+     	  temp_faceData.push_back(face_indices[0]);
+     	  temp_faceData.push_back(face_indices[i]);
+     	  temp_faceData.push_back(face_indices[i + 1]);
+     	}
+    }
+  }
+
+	if (!vn_flag || !temp_normals.size())
+	{
+		temp_normals.clear();
+		int	normalIndex = 0;
+		for (size_t i = 0; i + 2 < temp_faceData.size(); i += 3)
+		{
+			float	A[3] = {
+				temp_vertices[temp_faceData[i].vertex * 3 + 0],
+				temp_vertices[temp_faceData[i].vertex * 3 + 1],
+				temp_vertices[temp_faceData[i].vertex * 3 + 2]
+			};
+			float	B[3] = {
+				temp_vertices[temp_faceData[i + 1].vertex * 3 + 0],
+				temp_vertices[temp_faceData[i + 1].vertex * 3 + 1],
+				temp_vertices[temp_faceData[i + 1].vertex * 3 + 2]
+			};
+			float	C[3] = {
+				temp_vertices[temp_faceData[i + 2].vertex * 3 + 0],
+				temp_vertices[temp_faceData[i + 2].vertex * 3 + 1],
+				temp_vertices[temp_faceData[i + 2].vertex * 3 + 2]
+			};
+			std::vector<float>	normal = findNormal(A, B, C);
+			temp_normals.insert(temp_normals.end(), normal.begin(), normal.end());
+			temp_faceData[i].normal = normalIndex;
+			temp_faceData[i + 1].normal = normalIndex;
+			temp_faceData[i + 2].normal = normalIndex;
+			++normalIndex;
+		}
+	}
+
+  _vertices = temp_vertices;
+	_normals  = temp_normals;
+	_textures = temp_textures;
+  _faceData = temp_faceData;
+
+	if (!mtl_flag)
+	{
+		_BumpTextureID = generateDummyTexture(0);
+		_DiffTextureID = generateDummyTexture(1);
+	}
+
+	checkFileData();
 }
 
 void	Object::loadMTL(std::string fileName)
@@ -396,7 +410,10 @@ void	Object::loadMTL(std::string fileName)
 	std::string base_dir = _path.substr(0, _path.find_last_of("/\\") + 1);
 	std::ifstream MtlFile(base_dir + fileName);
   if (!MtlFile.is_open()) 
-		return;
+		throw std::runtime_error("ERROR::LOADER::MTL::PATH_ERROR\nfailed to open MTL file.");
+
+	bool	bump = false, diffuse = false;
+
   std::string line;
   while (std::getline(MtlFile, line)) 
   {
@@ -409,15 +426,21 @@ void	Object::loadMTL(std::string fileName)
     {
 			std::string	bumpFile;
 			iss >> bumpFile;
-			_BumpTextureID = setTextureData(base_dir, bumpFile, GL_TEXTURE0);
+			_BumpTextureID = setTextureData(base_dir, bumpFile, 0);
+			bump = true;
     }
 		else if (prefix == "map_Kd")
 		{
 			std::string diffFile;
 			iss >> diffFile;
-			_DiffTextureID = setTextureData(base_dir, diffFile, GL_TEXTURE1);
+			_DiffTextureID = setTextureData(base_dir, diffFile, 1);
+			diffuse = true;
 		}
 	}
+	if (!bump)
+		_BumpTextureID = generateDummyTexture(0);
+	if (!diffuse)
+		_DiffTextureID = generateDummyTexture(1);
 }
 
 unsigned int	Object::setTextureData(std::string& base_dir, std::string fileName, unsigned int slot)
@@ -457,7 +480,7 @@ unsigned int	Object::setTextureData(std::string& base_dir, std::string fileName,
 
 	// OpenGL Texture를 생성합니다.
 	unsigned int	textureID;
-	glActiveTexture(slot);
+	glActiveTexture(GL_TEXTURE0 + slot);
 	glGenTextures(1, &textureID);
 
 	// 새 텍스처에 "Bind" 합니다 : 이제 모든 텍스처 함수들은 이 텍스처를 수정합니다. 
@@ -516,7 +539,7 @@ void	Object::shiftToCentre()
 
 void	Object::checkFileData() const
 {
-	int	maxV = 0, maxVt = 0, maxVn = 0;
+	int	maxV = -1, maxVt = -1, maxVn = -1;
 
 	for (std::vector<FaceData>::const_iterator it = _faceData.begin(); it != _faceData.end(); it++)
 	{
@@ -525,8 +548,12 @@ void	Object::checkFileData() const
 		maxVn = maxVn > it->normal ? maxVn : it->normal;
 	}
 
-	if (maxV >= static_cast<int>(_vertices.size()) || maxVt >= static_cast<int>(_textures.size()) || maxVn >= static_cast<int>(_normals.size()))
-		throw Object::OBJFORMATERROR();
+	if (maxV * 3 + 2 >= static_cast<int>(_vertices.size()))
+			throw std::runtime_error("ERROR::LOADER::OBJ::DATA_ERROR\nvertex index is out of data.");
+	if (maxVt >= 0 && maxVt * 2 + 1 >= static_cast<int>(_textures.size()))
+			throw std::runtime_error("ERROR::LOADER::OBJ::DATA_ERROR\ntexture index is out of data.");
+	if (maxVn * 3 + 2 >= static_cast<int>(_normals.size()))
+			throw std::runtime_error("ERROR::LOADER::OBJ::DATA_ERROR\nnormal index is out of data.");
 }
 
 float	Object::getTextureRatio() const
@@ -558,4 +585,18 @@ std::vector<float>	Object::findNormal(const float *A, const float *B, const floa
 		firstVector[0] * secondVector[1] - firstVector[1] * secondVector[0]
 	};
 	return normal;
+}
+
+unsigned int	Object::generateDummyTexture(unsigned int slot) const
+{
+	unsigned int	dummyTextureID;
+	glActiveTexture(GL_TEXTURE0 + slot);
+	glGenTextures(1, &dummyTextureID);
+	glBindTexture(GL_TEXTURE_2D, dummyTextureID);
+	unsigned char grayPixel[] = {178, 178, 178, 255};
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, grayPixel);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	return dummyTextureID;
 }

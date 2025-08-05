@@ -57,11 +57,12 @@ class Object
 		float											_pos[3], _rot[3], _scale[3], _TextureRatio;
 		bool											_TextureMode, _isTextureExist;
 
-		bool								loadOBJ();
+		void								loadOBJ();
 		void								loadMTL(std::string path);
 		void								checkFileData() const;
 		void								shiftToCentre();
 		unsigned int				setTextureData(std::string& base_dir, std::string fileName, unsigned int slot);
+		unsigned int				generateDummyTexture(unsigned int slot) const;
 		std::vector<float>	findNormal(const float *A, const float *B, const float *C) const;
 
 	public:
@@ -71,33 +72,10 @@ class Object
 		void	move(MoveObject direction);
 		void	rotate(RotateObject direction);
 		void	getModelMatrix(float* out) const;
-		void	drawObject(unsigned int bumpSamplerLoc, unsigned int diffuseSamplerLoc);
+		void	updateTextureBlendRatio();
+		void	drawObject(unsigned int bumpSamplerLoc, unsigned int diffuseSamplerLoc) const;
 		void	toggleTexureMode();
 		float	getTextureRatio() const;
-
-	class OBJLOADFAIL : public std::exception
-	{
-		virtual const char*	what() const throw()
-		{
-			return "ERROR::LOADER::OBJ::LOAD_FAILED";
-		}
-	};
-
-	class OBJFORMATERROR : public std::exception
-	{
-		virtual const char*	what() const throw()
-		{
-			return "ERROR::LOADER::OBJ::FORMAT_ERROR";
-		}
-	};
-
-	class	MTLLOADFAIL : public std::exception
-	{
-		virtual const char*	what() const throw()
-		{
-			return "ERROR::LOADER::MTL::LOAD_FAILED";
-		}
-	};
 };
 
 #endif

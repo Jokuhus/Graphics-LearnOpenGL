@@ -105,6 +105,7 @@ int main(int argc, char* argv[])
 
         // Draw object
         // -----------
+        object.updateTextureBlendRatio();
         object.drawObject(bumpSamplerLoc, diffuseSamplerLoc);
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
@@ -175,7 +176,9 @@ void    process_input(Object& object)
 // ---------------------------------------------------------------------------------------------------------
 void    key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    std::cerr << "key input: [" << key << "]" << std::endl;
+    // to disable warning message
+    (void)scancode;
+    (void)mods;
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
     if (key == GLFW_KEY_L && action == GLFW_PRESS)
@@ -246,6 +249,7 @@ void    key_callback(GLFWwindow* window, int key, int scancode, int action, int 
 // ---------------------------------------------------------------------------------------------
 void    framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
+    (void)window; // to disable warning message
     // make sure the viewport matches the new window dimensions; note that width and 
     // height will be significantly larger than specified on retina displays.
     glViewport(0, 0, width, height);

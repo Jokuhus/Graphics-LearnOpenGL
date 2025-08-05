@@ -1,5 +1,5 @@
 UNAME := $(shell uname)
-CFLAGS := -I/opt/homebrew/include -Iinclude -Wall -Wextra -O2 -g
+CFLAGS := -I/opt/homebrew/include -Iinclude -Wall -Wextra -Werror -O2 -g
 LDFLAGS := -L/opt/homebrew/lib
 DEBUG := #-g -fsanitize=address
 
