@@ -1,6 +1,4 @@
 UNAME := $(shell uname)
-CFLAGS := -I/opt/homebrew/include -Iinclude -Wall -Wextra -Werror -O2 -g
-LDFLAGS := -L/opt/homebrew/lib
 DEBUG := #-g -fsanitize=address
 
 # Collecting Sorce files
@@ -18,8 +16,12 @@ CXX := c++
 
 # Linker
 ifeq ($(UNAME), Darwin)
-    LIBS = -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo -lglfw
+	CFLAGS := -I/opt/homebrew/include -Iinclude -Wall -Wextra -Werror -O2 -g
+	LDFLAGS := -L/opt/homebrew/lib
+	LIBS := -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo -lglfw
 else
+	CFLAGS := -I/usr/include -Iinclude -Wall -Wextra -Werror -O2 -g
+	LDFLAGS := -L/usr/lib/x86_64-linux-gnu
     LIBS = -lGL -lglfw -ldl
 endif
 
