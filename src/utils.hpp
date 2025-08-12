@@ -3,6 +3,7 @@
 
 # include <vector>
 # include <cmath>
+# include <cstring>
 
 void loadIdentity(float* m);
 void multiplyMatrix(float* result, const float* a, const float* b);
