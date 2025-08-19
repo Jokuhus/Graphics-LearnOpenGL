@@ -8,13 +8,14 @@ void cameraMove(const float* model, unsigned int uMVPLoc);
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
 
 // settings
-const unsigned int	SCR_WIDTH = 800;
-const unsigned int	SCR_HEIGHT = 600;
-bool                g_translate[7] = {false}, g_rotation[7] = {false}, g_textureMode = false;
+unsigned int	SCR_WIDTH = 800;
+unsigned int	SCR_HEIGHT = 600;
+bool            g_translate[7] = {false}, g_rotation[7] = {false}, g_textureMode = false;
+int			    g_objectIndex = 0, g_objectTotal;
 
 int main(int argc, char* argv[])
 {
-    if (argc != 2)
+    if (argc < 2)
     {
         std::cerr << ".obj file required" << std::endl;
         return -1;
@@ -58,14 +59,19 @@ int main(int argc, char* argv[])
 
     // set up vertex data
     // ------------------
-    Object  object(argv[1]);
-    try
+	g_objectTotal = argc - 1;
+	std::vector<Object>	objects;
+    objects.reserve(g_objectTotal);
+    for (int i = 1; i < argc; i++)
+        objects.push_back(Object(argv[i]));
+	try
     {
-        object.setObject();
+        for (int i = 0; i < g_objectTotal; i++)
+			objects[i].setObject();
     }
     catch(const std::exception& e)
     {
-        std::cerr << e.what() << '\n';
+		std::cerr << e.what() << '\n';
         return -1;
     }
 
@@ -77,36 +83,53 @@ int main(int argc, char* argv[])
     unsigned int    textureRatioLoc = glGetUniformLocation(shader.ID, "textureRatio");
     unsigned int    bumpSamplerLoc = glGetUniformLocation(shader.ID, "BumpSampler");
     unsigned int    diffuseSamplerLoc = glGetUniformLocation(shader.ID, "DiffuseSampler");
+    float           lightColor = 1.0f;
+    float           lightChange = -0.005f;
 
     // render loop
     // -----------
     while (!glfwWindowShouldClose(window))
     {
+        if (lightColor < 0.7f)
+            lightChange = -lightChange;
+        else if (lightColor > 1.0f)
+            lightChange = -lightChange;
+        lightColor += lightChange;
+
         // render
         // ------
         glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         shader.use();
 
-        process_input(object);
+        process_input(objects[g_objectIndex]);
 
         // Apply camera move & rotation
         // ----------------------------
-        float   model[16];
-        object.getModelMatrix(model);
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model);
-
-        cameraMove(model, uMVPLoc);
-
         glUniform3f(lightPosLoc, 3.0f, 3.0f, 5.0f);
-        glUniform3f(lightColorLoc, 1.0f, 1.0f, 1.0f);
-        glUniform3f(objectColorLoc, 0.7f, 0.7f, 0.7f);
-        glUniform1f(textureRatioLoc, object.getTextureRatio());
+        glUniform3f(objectColorLoc, 0.8f, 0.8f, 0.8f);
+		
+		for (int i = 0; i < g_objectTotal; i++)
+		{
+			Object&	object = objects[i];
 
-        // Draw object
-        // -----------
-        object.updateTextureBlendRatio();
-        object.drawObject(bumpSamplerLoc, diffuseSamplerLoc);
+        	float   model[16];
+        	object.getModelMatrix(model);
+        	glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model);
+
+        	cameraMove(model, uMVPLoc);
+
+            if (i == g_objectIndex)
+                glUniform3f(lightColorLoc, lightColor, lightColor, lightColor);
+            else
+                glUniform3f(lightColorLoc, 1.0f, 1.0f, 1.0f);
+        	glUniform1f(textureRatioLoc, object.getTextureRatio());
+
+        	// Draw object
+        	// -----------
+        	object.updateTextureBlendRatio();
+        	object.drawObject(bumpSamplerLoc, diffuseSamplerLoc);
+		}
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
         // -------------------------------------------------------------------------------
@@ -243,6 +266,8 @@ void    key_callback(GLFWwindow* window, int key, int scancode, int action, int 
         g_rotation[6] = true;
     if (key == GLFW_KEY_R && action == GLFW_RELEASE)
         g_rotation[6] = false;
+	if (key == GLFW_KEY_C && action == GLFW_PRESS)
+		g_objectIndex = (g_objectIndex + 1) % g_objectTotal;
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
@@ -252,5 +277,7 @@ void    framebuffer_size_callback(GLFWwindow* window, int width, int height)
     (void)window; // to disable warning message
     // make sure the viewport matches the new window dimensions; note that width and 
     // height will be significantly larger than specified on retina displays.
+	SCR_WIDTH = width;
+	SCR_HEIGHT = height;
     glViewport(0, 0, width, height);
 }

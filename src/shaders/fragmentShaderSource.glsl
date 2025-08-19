@@ -23,7 +23,7 @@ void main()
     // Lambert (diffuse)
     float diff = max(dot(norm, lightDir), 0.0);
     vec3 diffuse = diff * lightColor;
-    float diffBump = max(dot(bumpedNormal, lightDir), 0.0);
+    float diffBump = max(dot(norm, lightDir), 0.0);
     vec3 diffuseBump = diffBump * lightColor;
 
     // ambient (약간의 기본 빛)

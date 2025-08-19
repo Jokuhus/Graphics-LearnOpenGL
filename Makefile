@@ -12,7 +12,12 @@ OBJ := $(OBJ:.cpp=.o)
 
 #Compiler
 CC := cc
-CXX := c++
+CXX := $(or $(shell command -v g++ 2>/dev/null), \
+             $(shell command -v clang++ 2>/dev/null))
+
+ifeq ($(CXX),)
+    $(error No suitable C++ compiler found (need g++ or clang++))
+endif 
 
 # Linker
 ifeq ($(UNAME), Darwin)

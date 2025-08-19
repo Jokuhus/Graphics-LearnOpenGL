@@ -1,6 +1,9 @@
 #include "Object.hpp"
 
-Object::Object(const char* path) : _path(path), _TextureRatio(0.0f), _TextureMode(false)
+Object::Object(const char* path) : 
+_path(path), _VBO(0), _VAO(0), _EBO(0),
+_DiffTextureID(0), _BumpTextureID(0),
+_TextureRatio(0.0f), _TextureMode(false)
 {
 	for (int i = 0; i < 3; i++)
 	{
@@ -221,8 +224,9 @@ void	Object::setObject()
 void Object::loadOBJ()
 {
 	std::string::size_type	extention = _path.find_last_of(".");
-	if (extention == std::string::npos || _path.substr(extention + 1) != "obj")
+	if (extention == std::string::npos || _path.substr(extention + 1) != "obj") {
 		throw std::runtime_error("ERROR::LOADER::OBJ::WRONG_EXTENSION\ninvalid file extension.");
+	}
 
   std::ifstream file(_path);
   if (!file.is_open())
